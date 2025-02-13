@@ -22,7 +22,6 @@ def new_light(
     }
 
     out_lvl_switch_spesific = {
-        "brightness_scale": 100,
         "command_on_template": """
                 {
                     "props":{},
@@ -31,7 +30,7 @@ def new_light(
                     "tags":[]
                 {%- if brightness is defined -%}
                     , "type":"cmd.lvl.set",
-                    "val":{{ (brightness / 2.55) | int }},
+                    "val":{{ brightness | int }},
                     "val_t":"int"
                 {%- else -%}
                     , "type":"cmd.binary.set",
@@ -51,7 +50,7 @@ def new_light(
                     "val_t":"bool"
                 }
             """,
-        "brightness_template": "{{ (value_json.val * 2.55) | int }}"
+        "brightness_template": "{{ value_json.val | int }}"
     }
 
     out_bin_switch_spesific = {
