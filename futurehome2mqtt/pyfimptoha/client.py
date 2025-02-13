@@ -40,7 +40,7 @@ class Client:
 
 
     def do_connect(self):
-        self.client = mqtt.Client(self._client_id)
+        self.client = mqtt.Client(client_id=self._client_id)
         self.client.loop_start()
 
         self.client.on_connect = self.on_connect

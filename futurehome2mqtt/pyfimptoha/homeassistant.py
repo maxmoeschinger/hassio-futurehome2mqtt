@@ -12,7 +12,7 @@ import pyfimptoha.mode as mode_select
 
 
 SUPPORTED_SENSORS = ["battery", "sensor_lumin", "sensor_presence", "sensor_temp", "sensor_humid", "sensor_contact"]
-SUPPORTED_LIGHTS = ["out_lvl_switch", "out_bin_switch"]
+SUPPORTED_LIGHTS = ["out_lvl_switch", "out_bin_switch"] # Only one can be created. List index sets priority
 
 
 def create_components(
@@ -65,6 +65,7 @@ def create_components(
             print(f"Creating: {adapter} {address} {name}")
             print(f"- Functionality: {functionality}")
 
+        device_services = device["services"].keys()
         for service_name, service in device["services"].items():
             status = None
 
@@ -125,7 +126,8 @@ def create_components(
 
             # Lights
             elif functionality == "lighting":
-                if service_name in SUPPORTED_LIGHTS:
+                device_light_services = [sl for sl in SUPPORTED_LIGHTS if sl in device_services]
+                if service_name in device_light_services and device_light_services.index(service_name) == 0:
                     if debug:
                         print(f"- Service: {service_name}")
                     status = light.new_light(**common_params, service_name=service_name, command_topic=command_topic)
