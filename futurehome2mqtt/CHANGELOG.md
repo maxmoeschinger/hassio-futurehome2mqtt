@@ -1,3 +1,7 @@
+## 0.4.0
+
+- Only add one light switch
+
 ## 0.3.7
 
 - Updated README
