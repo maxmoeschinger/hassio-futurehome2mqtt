@@ -1,14 +1,33 @@
 import json
 import os
 import time
+import uuid
+from typing import Callable
 
 from dotenv import load_dotenv
 
 import paho.mqtt.client as mqtt
-import pyfimptoha.homeassistant as homeassistant
 
+class MqttCallback:
+    def __init__(self, topic_to_subscribe=None, on_dict_message=None):
+        self._on_dict_message = on_dict_message
+        self.topic_to_subscribe = topic_to_subscribe
+        self.last_dict_message = None
 
-class Client:
+    def on_message(self, msg):
+        payload = str(msg.payload.decode("utf-8"))
+        data = None
+        try:
+            data = json.loads(payload)
+        except json.decoder.JSONDecodeError:
+            pass
+
+        if self._on_dict_message and data is not None:
+            data = self._on_dict_message(msg, data)
+            if data is not None:
+                self.last_dict_message = data
+
+class MqttClient:
     def __init__(self):
         load_dotenv()
 
@@ -22,6 +41,7 @@ class Client:
         self._selected_devices_mode: str = os.environ.get('SELECTED_DEVICES_MODE')
         self._selected_devices: list = os.environ.get('SELECTED_DEVICES').split(',')
         self._topic_discover: str = "pt:j1/mt:rsp/rt:app/rn:homeassistant/ad:flow1"
+        self.on_message_callbacks = {}
 
         if self._debug.lower() == "true":
             self._debug = True
@@ -36,10 +56,7 @@ class Client:
         print('Selected devices mode: ', self._selected_devices_mode)
         print('Selected devices: ', self._selected_devices)
 
-        self.do_connect()
-
-
-    def do_connect(self):
+    def connect(self):
         self.client = mqtt.Client(client_id=self._client_id)
         self.client.loop_start()
 
@@ -51,6 +68,7 @@ class Client:
         self.client.connect(self._server, self._port, 60)
         time.sleep(2)
 
+        return self.connected
 
     def on_connect(self, client, userdata, flags, rc):
         """
@@ -66,46 +84,40 @@ class Client:
             # Request FIMP devices
             self.client.subscribe(self._topic_discover)
 
-            self.send_discovery_request()
-
-
-    def send_discovery_request(self):
-        """
-        Load FIMP devices from MQTT broker
-        """
-        path = "pyfimptoha/data/fimp_discover.json"
-        topic = "pt:j1/mt:cmd/rt:app/rn:vinculum/ad:1"
-        with open(path) as json_file:
-            data = json.load(json_file)
-
+    def publish_dict(self, topic, data):
         payload = json.dumps(data)
-        print('Asking FIMP to expose all devices, shortcuts, rooms and mode...')
-        self.client.publish(topic, payload)
+        self.publish(topic, payload)
 
+    def publish(self, topic, payload):
+        self.client.publish(topic, payload)
 
     def on_message(self, client, userdata, msg):
         """
         The callback for when a message is received from the server.
         """
-        payload = str(msg.payload.decode("utf-8"))
+        for clbk in self.on_message_callbacks.values():
+            clbk.on_message(msg)
 
-        # Discover FIMP devices, shortcuts, mode and create Home Aassistant components out of them
-        if msg.topic == self._topic_discover:
-            data = json.loads(payload)
-            homeassistant.create_components(
-                devices=data["val"]["param"]["device"],
-                rooms=data["val"]["param"]["room"],
-                shortcuts=data["val"]["param"]["shortcut"],
-                mode=data["val"]["param"]["house"]["mode"],
-                mqtt=self.client,
-                selected_devices_mode=self._selected_devices_mode,
-                selected_devices=self._selected_devices,
-                debug=self._debug
-            )
-        elif msg.topic == "homeassistant/status" and payload == "online":
-            # Home Assistant was restarted - Push everything again
-            self.send_discovery_request()
+    def send_and_wait(self, command_topic, event_topic, data, is_correct: Callable, timeout=5):
+        def on_message(msg, data):
+            if not is_correct(msg, data):
+                return None
 
+            return msg, data
+
+        callback = MqttCallback(
+            on_dict_message=on_message,
+            topic_to_subscribe=event_topic,
+        )
+        self.add_callback(callback)
+        self.publish_dict(command_topic, data)
+
+        start_time = time.time()
+        end_time = start_time + timeout
+        while time.time() < end_time and callback.last_dict_message is None:
+            time.sleep(0.1)
+
+        return callback.last_dict_message
 
     def on_disconnect(self, client, userdata, rc):
         """
@@ -114,5 +126,19 @@ class Client:
 
         self.connected = False
         print(f"MQTT client: Disconnected... Result code: {str(rc)}.")
-        time.sleep(5)
-        self.do_connect()
+
+    def add_callback(self, callback: MqttCallback):
+        id = str(uuid.uuid4())
+        self.on_message_callbacks[id] = callback
+
+        if callback.topic_to_subscribe is not None:
+            self.client.subscribe(callback.topic_to_subscribe)
+
+        return id
+
+    def remove_callback(self, id):
+        if id in self.on_message_callbacks:
+            if self.on_message_callbacks[id].topic_to_subscribe is not None:
+                self.client.unsubscribe(self.on_message_callbacks[id].topic_to_subscribe)
+
+            self.on_message_callbacks.pop(id)

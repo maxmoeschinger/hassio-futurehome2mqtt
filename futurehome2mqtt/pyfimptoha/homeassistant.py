@@ -3,13 +3,14 @@ import time
 import paho.mqtt.client as client
 import pyfimptoha.sensor as sensor
 import pyfimptoha.meter_elec as meter_elec
+import pyfimptoha.chargepoint as chargepoint
 import pyfimptoha.light as light
 import pyfimptoha.lock as lock
 import pyfimptoha.appliance as appliance
 import pyfimptoha.thermostat as thermostat
 import pyfimptoha.shortcut as shortcut_button
 import pyfimptoha.mode as mode_select
-
+from pyfimptoha.mqtt_client import MqttClient
 
 SUPPORTED_SENSORS = ["battery", "sensor_lumin", "sensor_presence", "sensor_temp", "sensor_humid", "sensor_contact"]
 SUPPORTED_LIGHTS = ["out_lvl_switch", "out_bin_switch"] # Only one can be created. List index sets priority
@@ -20,7 +21,7 @@ def create_components(
         rooms: list,
         shortcuts: list,
         mode: str,
-        mqtt: client,
+        mqtt: MqttClient,
         selected_devices_mode: str,
         selected_devices: list,
         debug: bool
@@ -116,6 +117,12 @@ def create_components(
                     for s in status:
                         statuses.append((s[0], s[1]))
 
+            elif service_name == "chargepoint":
+                if debug:
+                    print(f"- Service: {service_name}")
+
+                chargepoint.chargepoint(**common_params, service_name=service_name, command_topic=command_topic)
+
             # Door lock
             elif service_name == "door_lock":
                 if debug:
@@ -167,7 +174,6 @@ def create_components(
         shortcut_button.new_button(mqtt, shortcut, debug)
 
 
-    mqtt.loop()
     time.sleep(2)
     print("Publishing statuses...")
     for state in statuses:
