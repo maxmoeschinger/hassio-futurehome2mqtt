@@ -1,13 +1,16 @@
 import json
-import typing
 
-def get_max_current(mqtt, command_topic, state_topic):
+from pyfimptoha.helpers.MqttDevice import MqttDevice
+from pyfimptoha.helpers.MqttDeviceService import MqttDeviceService
+
+
+def get_max_current(mqtt, chargepoint_service):
     def is_correct(msg, data):
         return "type" in data and data["type"] == "evt.max_current.report"
 
     d = mqtt.send_and_wait(
-        command_topic,
-        state_topic,
+        chargepoint_service.command_topic,
+        chargepoint_service.state_topic,
         {
             "serv": "chargepoint",
             "src": "homeassistant",
@@ -26,44 +29,38 @@ def get_max_current(mqtt, command_topic, state_topic):
 
 def chargepoint(
     mqtt,
-    device: typing.Any,
-    service_name,
-    state_topic,
-    identifier,
-    default_component,
-    command_topic
+    mqtt_device: MqttDevice
 ):
-    if "evt.max_current.report" in device["services"][service_name]["intf"]:
-        max_current_sensor(mqtt, device, service_name, state_topic, identifier, default_component, command_topic)
+    chargepoint_service = mqtt_device.get_service("chargepoint")
 
-    max_current = get_max_current(mqtt, command_topic, state_topic)
+    if "evt.max_current.report" in chargepoint_service.intf:
+        max_current_sensor(mqtt, chargepoint_service)
+
+    max_current = get_max_current(mqtt, chargepoint_service)
     if max_current is None:
         print("Could not determine max_current")
         return
 
-    if "evt.cable_lock.report" in device["services"][service_name]["intf"]:
-        cable_lock(mqtt, device, service_name, state_topic, identifier, default_component, command_topic)
-    if "evt.state.report" in device["services"][service_name]["intf"]:
-        state(mqtt, device, service_name, state_topic, identifier, default_component, command_topic)
-    if "evt.current_session.report" in device["services"][service_name]["intf"]:
-        current(mqtt, device, service_name, state_topic, identifier, default_component, command_topic, max_current)
-    if "cmd.charge.start" in device["services"][service_name]["intf"] and "cmd.charge.stop" in device["services"][service_name]["intf"]:
-        charging(mqtt, device, service_name, state_topic, identifier, default_component, command_topic, max_current)
+    if "evt.cable_lock.report" in chargepoint_service.intf:
+        cable_lock(mqtt, chargepoint_service)
+    if "evt.state.report" in chargepoint_service.intf:
+        state(mqtt, chargepoint_service)
+    if "evt.current_session.report" in chargepoint_service.intf:
+        current(mqtt, chargepoint_service, max_current)
+    if "cmd.charge.start" in chargepoint_service.intf and "cmd.charge.stop" in chargepoint_service.intf:
+        charging(mqtt, chargepoint_service)
 
-    min_current_sensor(mqtt, device, service_name, state_topic, identifier, default_component, command_topic)
+    min_current_sensor(mqtt, chargepoint_service)
+
+    return mqtt_device.get_reports_info(["chargepoint"])
 
 def cable_lock(
-        mqtt,
-        device,
-        service_name,
-        state_topic,
-        identifier,
-        default_component,
-        command_topic
+    mqtt,
+    chargepoint_service
 ):
-    local_identifier = identifier + "_cable_lock"
+    local_identifier = chargepoint_service.identifier + "_cable_lock"
     lock_component = {
-        "command_topic": command_topic,
+        "command_topic": chargepoint_service.command_topic,
         "name": "Cable lock",
         "value_template": """
             {% if value_json.type == 'evt.cable_lock.report' %}
@@ -89,21 +86,16 @@ def cable_lock(
         "object_id": local_identifier,
         "unique_id": local_identifier
     }
-    merged_component = {**default_component, **lock_component}
+    merged_component = {**chargepoint_service.get_default_component(), **lock_component}
     payload = json.dumps(merged_component)
     mqtt.publish(f"homeassistant/lock/{local_identifier}/config", payload)
 
 
 def state(
-        mqtt,
-        device,
-        service_name,
-        state_topic,
-        identifier,
-        default_component,
-        command_topic
+    mqtt,
+    chargepoint_service,
 ):
-    local_identifier = identifier + "_state"
+    local_identifier = chargepoint_service.identifier + "_state"
     x_component = {
         "name": "State",
         "value_template": """
@@ -116,24 +108,19 @@ def state(
         "object_id": local_identifier,
         "unique_id": local_identifier
     }
-    merged_component = {**default_component, **x_component}
+    merged_component = {**chargepoint_service.get_default_component(), **x_component}
     payload = json.dumps(merged_component)
     mqtt.publish(f"homeassistant/sensor/{local_identifier}/config", payload)
 
 def current(
     mqtt,
-    device,
-    service_name,
-    state_topic,
-    identifier,
-    default_component,
-    command_topic,
+    chargepoint_service,
     max_current
 ):
-    local_identifier = identifier + "_current"
+    local_identifier = chargepoint_service.identifier + "_current"
     x_component = {
         "name": "Charge current",
-        "command_topic": command_topic,
+        "command_topic": chargepoint_service.command_topic,
         "value_template": """
             {% if value_json.type == 'evt.current_session.report' and value_json.props.offered_current != '0' %}
                 {{ value_json.props.offered_current | int }}
@@ -156,20 +143,15 @@ def current(
         "object_id": local_identifier,
         "unique_id": local_identifier
     }
-    merged_component = {**default_component, **x_component}
+    merged_component = {**chargepoint_service.get_default_component(), **x_component}
     payload = json.dumps(merged_component)
     mqtt.publish(f"homeassistant/number/{local_identifier}/config", payload)
 
 def max_current_sensor(
     mqtt,
-    device,
-    service_name,
-    state_topic,
-    identifier,
-    default_component,
-    command_topic
+    chargepoint_service: MqttDeviceService
 ):
-    local_identifier = identifier + "_max_current"
+    local_identifier = chargepoint_service.identifier + "_max_current"
     x_component = {
         "name": "Max current",
         "value_template": """
@@ -183,20 +165,15 @@ def max_current_sensor(
         "object_id": local_identifier,
         "unique_id": local_identifier
     }
-    merged_component = {**default_component, **x_component}
+    merged_component = {**chargepoint_service.get_default_component(), **x_component}
     payload = json.dumps(merged_component)
     mqtt.publish(f"homeassistant/sensor/{local_identifier}/config", payload)
 
 def min_current_sensor(
     mqtt,
-    device,
-    service_name,
-    state_topic,
-    identifier,
-    default_component,
-    command_topic
+    chargepoint_service
 ):
-    local_identifier = identifier + "_min_current"
+    local_identifier = chargepoint_service.identifier + "_min_current"
     x_component = {
         "name": "Min current",
         "value_template": """
@@ -206,37 +183,45 @@ def min_current_sensor(
         "object_id": local_identifier,
         "unique_id": local_identifier
     }
-    merged_component = {**default_component, **x_component}
+    merged_component = {**chargepoint_service.get_default_component(), **x_component}
     payload = json.dumps(merged_component)
     mqtt.publish(f"homeassistant/sensor/{local_identifier}/config", payload)
 
 def charging(
     mqtt,
-    device,
-    service_name,
-    state_topic,
-    identifier,
-    default_component,
-    command_topic,
-    max_current
+    chargepoint_service,
 ):
-    local_identifier = identifier + "_charging"
+    local_identifier = chargepoint_service.identifier + "_charging"
     x_component = {
         "name": "Charging",
-        "command_topic": command_topic,
+        "command_topic": chargepoint_service.command_topic,
         "value_template": """
             {% if value_json.type == 'evt.state.report' %}
                 {% if value_json.val == 'charging' %}
                     ON
-                {% elif value_json.val == 'ready_to_charge' %}
-                    OFF
                 {% else %}
-                    offline
+                    OFF
                 {% endif %}
             {% else %}
-                {{ this.state }}
+                undefined
             {% endif %}
         """,
+        "availability": {
+            "topic": chargepoint_service.state_topic,
+            "value_template": """
+                {% if value_json.type == 'evt.state.report' %}
+                    {% if value_json.val == 'charging' %}
+                        online
+                    {% elif value_json.val == 'ready_to_charge' %}
+                        online
+                    {% else %}
+                        offline
+                    {% endif %}
+                {% else %}
+                    undefined
+                {% endif %}
+            """,
+        },
         "command_template": """
             {
                 "src":"homeassistant",
@@ -253,6 +238,6 @@ def charging(
         "object_id": local_identifier,
         "unique_id": local_identifier
     }
-    merged_component = {**default_component, **x_component}
+    merged_component = {**chargepoint_service.get_default_component(), **x_component}
     payload = json.dumps(merged_component)
     mqtt.publish(f"homeassistant/switch/{local_identifier}/config", payload)

@@ -6,6 +6,7 @@ class MqttDeviceService:
         self.identifier = f"fh_{self.device.id}_{self.device.adapter}_{self.device.address}_{service_name}"
         self.state_topic = f"pt:j1/mt:evt{self.service_data['addr']}"
         self.command_topic = f"pt:j1/mt:cmd{self.service_data['addr']}"
+        self.intf = self.service_data['intf'] if 'intf' in self.service_data else None
 
     def get_default_component(self):
         return {
@@ -31,3 +32,6 @@ class MqttDeviceService:
             "identifier": self.identifier,
             "default_component": self.get_default_component()
         }
+
+    def get_reports_info(self):
+        return [[self.command_topic, self.service_name, s] for s in self.service_data["intf"] if s.endswith(".get_report")]

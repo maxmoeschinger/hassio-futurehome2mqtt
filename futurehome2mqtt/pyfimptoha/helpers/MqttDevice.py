@@ -31,3 +31,19 @@ class MqttDevice(object):
             services[service_name] = MqttDeviceService(self, service_name, service)
 
         return services
+
+    def get_service(self, service_name):
+        services = self.get_services()
+
+        if service_name in services:
+            return services[service_name]
+
+        return None
+
+    def get_reports_info(self, whitelist):
+        services_reports_info = [service.get_reports_info() for service_name, service in self.get_services().items() if service_name in whitelist]
+        merged = []
+        for service_reports_info in services_reports_info:
+            merged.extend(service_reports_info)
+
+        return merged

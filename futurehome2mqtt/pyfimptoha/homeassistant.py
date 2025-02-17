@@ -33,6 +33,7 @@ def create_components(
     print('Received list of devices from FIMP. FIMP reported %s devices' % (len(devices)))
     print('Devices without rooms will be ignored')
 
+    get_reports_list = []
     statuses = []
 
     for device in devices:
@@ -119,12 +120,6 @@ def create_components(
                     for s in status:
                         statuses.append((s[0], s[1]))
 
-            elif service_name == "chargepoint":
-                if debug:
-                    print(f"- Service: {service_name}")
-
-                chargepoint.chargepoint(**common_params, service_name=service_name, command_topic=command_topic)
-
             # Door lock
             elif service_name == "door_lock":
                 if debug:
@@ -151,8 +146,31 @@ def create_components(
                     for s in status:
                         statuses.append((s[0], s[1]))
 
+        if mqtt_device.has_service("chargepoint"):
+            if debug:
+                print("- Service: chargepoint")
+
+            get_reports_list.extend(
+                chargepoint.chargepoint(mqtt, mqtt_device)
+            )
+
         if mqtt_device.functionality == "lighting":
-            light.new_light_v2(mqtt, mqtt_device)
+            if debug:
+                print("- Service: lightning")
+            get_reports_list.extend(
+                light.new_light_v2(mqtt, mqtt_device)
+            )
+
+    print(f"Publishing {len(get_reports_list)} get_report requests")
+    for topic, service, report_name in get_reports_list:
+        mqtt.publish_dict(topic, {
+            "serv": service,
+            "src": "homeassistant",
+            "type": report_name,
+            "val_t": "null",
+            "val": None,
+        })
+    print(f"Done publishing get_report requests")
 
     # Mode select (home, away, sleep, vacation)
     status = None

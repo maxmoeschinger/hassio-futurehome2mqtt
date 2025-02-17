@@ -70,4 +70,4 @@ def new_light_v2(mqtt, device: MqttDevice):
     payload = json.dumps({**main_service.get_default_component(), **light_component})
     mqtt.publish(f"homeassistant/light/{main_service.identifier}/config", payload)
 
-    # Todo trigger get_report for all needed values
+    return device.get_reports_info(["color_ctrl", "out_lvl_switch", "out_bin_switch"])
