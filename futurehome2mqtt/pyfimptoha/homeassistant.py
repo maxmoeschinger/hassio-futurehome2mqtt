@@ -1,18 +1,18 @@
 import time
 
-import paho.mqtt.client as client
 import pyfimptoha.sensor as sensor
 import pyfimptoha.meter_elec as meter_elec
+import pyfimptoha.chargepoint as chargepoint
 import pyfimptoha.light as light
 import pyfimptoha.lock as lock
 import pyfimptoha.appliance as appliance
 import pyfimptoha.thermostat as thermostat
 import pyfimptoha.shortcut as shortcut_button
 import pyfimptoha.mode as mode_select
-
+from pyfimptoha.helpers.MqttDevice import MqttDevice
+from pyfimptoha.mqtt_client import MqttClient
 
 SUPPORTED_SENSORS = ["battery", "sensor_lumin", "sensor_presence", "sensor_temp", "sensor_humid", "sensor_contact"]
-SUPPORTED_LIGHTS = ["out_lvl_switch", "out_bin_switch"] # Only one can be created. List index sets priority
 
 
 def create_components(
@@ -20,7 +20,7 @@ def create_components(
         rooms: list,
         shortcuts: list,
         mode: str,
-        mqtt: client,
+        mqtt: MqttClient,
         selected_devices_mode: str,
         selected_devices: list,
         debug: bool
@@ -41,12 +41,15 @@ def create_components(
         if room_id is None:
             continue
 
+        mqtt_device = MqttDevice(
+            device_data=device,
+            room_alias=get_room_alias(rooms, room_id)
+        )
         address = device["fimp"]["address"]
-        adapter = get_adapter_name(device)
+        adapter = mqtt_device.adapter
         name = device["client"]["name"]
         vinc_id = device["id"]
         functionality = device["functionality"]
-        room_alias = get_room_alias(rooms, room_id)
 
         # When debugging you have the option to (only) include or exclude (some) devices
         # depending on 'selected_devices_mode'.
@@ -82,7 +85,7 @@ def create_components(
                 "device": {
                     "identifiers": f"{adapter}_{address}",
                     "name": f"{name}",
-                    "suggested_area": f"{room_alias}",
+                    "suggested_area": f"{mqtt_device.room_alias}",
                     "hw_version": f"{model}",
                     "model": f"{model_alias}",
                     "sw_version": f"{adapter}_{address}"
@@ -116,21 +119,17 @@ def create_components(
                     for s in status:
                         statuses.append((s[0], s[1]))
 
+            elif service_name == "chargepoint":
+                if debug:
+                    print(f"- Service: {service_name}")
+
+                chargepoint.chargepoint(**common_params, service_name=service_name, command_topic=command_topic)
+
             # Door lock
             elif service_name == "door_lock":
                 if debug:
                     print(f"- Service: {service_name}")
                 status = lock.door_lock(**common_params, command_topic=command_topic)
-                if status:
-                    statuses.append(status)
-
-            # Lights
-            elif functionality == "lighting":
-                device_light_services = [sl for sl in SUPPORTED_LIGHTS if sl in device_services]
-                if service_name in device_light_services and device_light_services.index(service_name) == 0:
-                    if debug:
-                        print(f"- Service: {service_name}")
-                    status = light.new_light(**common_params, service_name=service_name, command_topic=command_topic)
                 if status:
                     statuses.append(status)
 
@@ -152,6 +151,8 @@ def create_components(
                     for s in status:
                         statuses.append((s[0], s[1]))
 
+        if mqtt_device.functionality == "lighting":
+            light.new_light_v2(mqtt, mqtt_device)
 
     # Mode select (home, away, sleep, vacation)
     status = None
@@ -167,7 +168,6 @@ def create_components(
         shortcut_button.new_button(mqtt, shortcut, debug)
 
 
-    mqtt.loop()
     time.sleep(2)
     print("Publishing statuses...")
     for state in statuses:
@@ -177,17 +177,6 @@ def create_components(
         if debug:
             print(topic)
     print("Finished pushing statuses...")
-
-
-def get_adapter_name(device):
-    if device["fimp"]["adapter"] == "zwave-ad":
-        adapter = "zw"
-    elif device["fimp"]["adapter"] == "zigbee":
-        adapter = "zb"
-    else:
-        adapter = device["fimp"]["adapter"]
-    return adapter
-
 
 def get_room_alias(rooms, room_id):
     room_alias = [room["alias"] for room in rooms if room["id"] == room_id][0]
