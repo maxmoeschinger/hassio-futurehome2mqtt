@@ -1,123 +1,73 @@
 import json
-import typing
+from pyfimptoha.helpers.MqttDevice import MqttDevice
 
+def new_light_v2(mqtt, device: MqttDevice):
+    if not device.has_service("out_bin_switch"):
+        print("Missing out_bin_switch service for lightning")
+        return
 
-def new_light(
-        mqtt,
-        device: typing.Any,
-        service_name: str,
-        state_topic,
-        identifier,
-        default_component,
-        command_topic
-):
-    """
-    Creates light in Home Assistant based on FIMP services
-    """
+    has_color_control = device.has_service("color_ctrl")
+    has_level_control = device.has_service("out_lvl_switch")
+    device_services = device.get_services()
 
+    main_service = device_services["out_lvl_switch"] if has_level_control else device_services["out_bin_switch"]
+
+    payload_on = '{"serv":"out_bin_switch","type":"cmd.binary.set","val":true,"val_t":"bool","src":"homeassistant"}'
+    payload_off = '{"serv":"out_bin_switch","type":"cmd.binary.set","val":false,"val_t":"bool","src":"homeassistant"}'
     light_component = {
-        "command_topic": command_topic,
-        "schema": "template",
-        "state_template": "{% if value_json.val %} on {% else %} off {% endif %}"
+        # "schema": "template",
+        "state_topic": device_services["out_bin_switch"].state_topic,
+        "command_topic": device_services["out_bin_switch"].command_topic,
+        "state_value_template": "{% if value_json.val %}" + payload_on + "{% else %}" + payload_off + "{% endif %}",
+        "payload_on": payload_on,
+        "payload_off": payload_off
     }
 
-    out_lvl_switch_spesific = {
-        "command_on_template": """
+    if has_level_control:
+        light_component = {
+            **light_component,
+            "brightness_state_topic": device_services["out_lvl_switch"].state_topic,
+            "brightness_command_topic": device_services["out_lvl_switch"].command_topic,
+            "brightness_value_template": "{{ value_json.val | int }}",
+            "brightness_command_template": """
                 {
                     "props":{},
-                    "src":"homeassistant",
-                    "serv":"out_lvl_switch",
-                    "tags":[]
-                {%- if brightness is defined -%}
-                    , "type":"cmd.lvl.set",
-                    "val":{{ brightness | int }},
-                    "val_t":"int"
-                {%- else -%}
-                    , "type":"cmd.binary.set",
-                    "val":true,
-                    "val_t":"bool"
-                {%- endif -%}
-                }
-            """,
-        "command_off_template": """
-                {
-                    "props":{},
-                    "src":"homeassistant",
                     "serv":"out_lvl_switch",
                     "tags":[],
-                    "type":"cmd.binary.set",
-                    "val":false,
-                    "val_t":"bool"
+                    "type":"cmd.lvl.set",
+                    "val": {{ value | int }},
+                    "val_t": "int",
+                    "src":"homeassistant"
                 }
-            """,
-        "brightness_template": "{{ value_json.val | int }}"
-    }
+            """
+        }
 
-    out_bin_switch_spesific = {
-        "payload_on": '{"props":{},"serv":"out_bin_switch","tags":[],"type":"cmd.binary.set","val":true,"val_t":"bool","src":"homeassistant"}',
-        "payload_off": '{"props":{},"serv":"out_bin_switch","tags":[],"type":"cmd.binary.set","val":false,"val_t":"bool","src":"homeassistant"}',
-        "command_on_template": """
-            {
-                "props":{},
-                "serv":"out_bin_switch",
-                "tags":[],
-                "type":"cmd.binary.set",
-                "val":true,
-                "val_t":"bool",
-                "src":"homeassistant"
-            }
-        """,
-        "command_off_template": """
-            {
-                "props":{},
-                "serv":"out_bin_switch",
-                "tags":[],
-                "type":"cmd.binary.set",
-                "val":false,
-                "val_t":"bool",
-                "src":"homeassistant"
-            }
-        """
-    }
-
-    # Merge default_component with light_component
-    extended_component = {**default_component, **light_component}
-    if service_name == "out_lvl_switch":
-        # merge extended_component and out_lvl_switch_spesific dicts
-        merged_component = {**extended_component, **out_lvl_switch_spesific}
-    elif service_name == "out_bin_switch":
-        # merge extended_component and out_bin_switch_spesific dicts
-        merged_component = {**extended_component, **out_bin_switch_spesific}
-    else:
-        print("An error occured while constructing device")
-
-    payload = json.dumps(merged_component)
-    mqtt.publish(f"homeassistant/light/{identifier}/config", payload)
-
-    # Queue statuses
-    status = None
-    if device.get("param") and device['param'].get('power'):
-        power = device['param']['power']
-        if power == "off" or service_name == "out_bin_switch":
-            data = {
-                "props": {},
-                "serv": f"{service_name}",
-                "type": "evt.binary.report",
-                "val_t": "bool",
-                "val": True if power == 'on' else False,
-                "src": "homeassistant"
-            }
-        else:
-            dim_value = device['param']['dimValue']
-            data = {
-                "props": {},
-                "serv": "out_lvl_switch",
-                "type": "evt.lvl.report",
-                "val_t": "int",
-                "val": dim_value,
-                "src": "homeassistant"
+    if has_color_control:
+        color_ctrl = device_services["color_ctrl"]
+        components = color_ctrl.service_data["props"]["sup_components"]
+        if "temp" in components:
+            light_component = {
+                **light_component,
+                "color_temp_kelvin": True,
+                "color_temp_state_topic": color_ctrl.state_topic,
+                "color_temp_command_topic": color_ctrl.command_topic,
+                "color_temp_value_template": "{{ (1000000 / value_json.val.temp) | int }}",
+                "color_temp_command_template": """
+                    {
+                        "props":{},
+                        "serv":"color_ctrl",
+                        "tags":[],
+                        "type":"cmd.color.set",
+                        "val": {
+                            "temp": {{ (1000000 / value) | int }},
+                        },
+                        "val_t": "int_map",
+                        "src":"homeassistant"
+                    }
+                """
             }
 
-        payload = json.dumps(data)
-        status = (state_topic, payload)
-    return status
+    payload = json.dumps({**main_service.get_default_component(), **light_component})
+    mqtt.publish(f"homeassistant/light/{main_service.identifier}/config", payload)
+
+    # Todo trigger get_report for all needed values
