@@ -21,6 +21,7 @@ Read more about the [FIMP protocol](https://github.com/futurehomeno/fimp-api).
 - Lights (lights in HA)
   - Dimmers - On/Off and brightness. Tested with Fibaro dimmer 2
   - Switches - On/Off. Tested with Fibaro wall plug
+  - Color temp - On/Off, brightness and color temperature.
 - Locks
   - Basic unlock/lock for doorlocks. Tested with IDLock 150 (Unlock commands are currently not supported on Zigbee)
 - Thermostats
@@ -28,6 +29,12 @@ Read more about the [FIMP protocol](https://github.com/futurehomeno/fimp-api).
   - Set target temp
   - Read current measured temperature (Note that the temperature sensor that have the "Set as main temp sensor" checkbox checked in the Futurehome app will be used)
   - Change fan speed if device supports it (e.g Sensibo)
+- Chargepoints
+  - Set current
+  - Start/stop charging
+  - Read max current
+  - Lock/unlock cable
+  - Read charger state
 - Sensors
   - Battery
   - Illuminance

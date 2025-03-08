@@ -101,7 +101,6 @@ def queue_status(param, device, props, serv, typ, val_t):
         payload = json.dumps(data)
     return payload
 
-
 def meter_elec_ext_sensor(
         mqtt,
         device,

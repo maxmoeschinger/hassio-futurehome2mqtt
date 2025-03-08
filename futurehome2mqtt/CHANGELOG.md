@@ -1,3 +1,11 @@
+## 0.5.0
+
+- Support for charge points
+- Add support for color temperature for lights
+- Improve state logic for lights
+- Automatically request reports so that values are populated
+- Cleanup code
+
 ## 0.4.0
 
 - Only add one light switch
